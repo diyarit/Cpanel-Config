@@ -368,6 +368,8 @@ echo "Setting EasyApache 4 PHP..."
 find /opt/ \( -name "php.ini" -o -name "local.ini" \) | xargs sed -i 's/^memory_limit.*/memory_limit = 1024M/g'
 find /opt/ \( -name "php.ini" -o -name "local.ini" \) | xargs sed -i 's/^enable_dl.*/enable_dl = Off/g'
 find /opt/ \( -name "php.ini" -o -name "local.ini" \) | xargs sed -i 's/^expose_php.*/expose_php = Off/g'
+find /opt/ \( -name "php.ini" -o -name "local.ini" \) | xargs sed -i 's/^register_globals.*/register_globals = Off/g'
+find /opt/ \( -name "php.ini" -o -name "local.ini" \) | xargs sed -i 's/^emagic_quotes_gpc.*/magic_quotes_gpc = Off/g'
 find /opt/ \( -name "php.ini" -o -name "local.ini" \) | xargs sed -i 's/^disable_functions.*/disable_functions = apache_get_modules,apache_get_version,apache_getenv,apache_note,apache_setenv,disk_free_space,diskfreespace,dl,exec,highlight_file,ini_alter,ini_restore,openlog,passthru,phpinfo,popen,posix_getpwuid,proc_close,proc_get_status,proc_nice,proc_open,proc_terminate,shell_exec,show_source,symlink,system,eval,debug_zval_dump/g'
 find /opt/ \( -name "php.ini" -o -name "local.ini" \) | xargs sed -i 's/^upload_max_filesize.*/upload_max_filesize = 16M/g'
 find /opt/ \( -name "php.ini" -o -name "local.ini" \) | xargs sed -i 's/^post_max_size.*/post_max_size = 16M/g'
@@ -380,7 +382,9 @@ find /opt/ \( -name "php.ini" -o -name "local.ini" \) | xargs sed -i 's/^max_inp
 find /opt/ \( -name "php.ini" -o -name "local.ini" \) | xargs sed -i 's/^;default_charset = "UTF-8"/default_charset = "UTF-8"/g'
 find /opt/ \( -name "php.ini" -o -name "local.ini" \) | xargs sed -i 's/^default_charset.*/default_charset = "UTF-8"/g'
 
-find /opt/ \( -name "php.ini" -o -name "local.ini" \) | xargs sed -i 's/^display_errors.*/display_errors = On/g'
+find /opt/ \( -name "php.ini" -o -name "local.ini" \) | xargs sed -i 's/^display_errors.*/display_errors = Off/g'
+find /opt/ \( -name "php.ini" -o -name "local.ini" \) | xargs sed -i 's/^track_errors.*/track_errors = Off/g'
+find /opt/ \( -name "php.ini" -o -name "local.ini" \) | xargs sed -i 's/^html_errors.*/html_errors = Off/g'
 find /opt/ \( -name "php.ini" -o -name "local.ini" \) | xargs sed -i 's/^error_reporting.*/error_reporting = E_ALL \& \~E_DEPRECATED \& \~E_STRICT/g'
 
 echo "Setting default PHP-FPM values..." # https://documentation.cpanel.net/display/74Docs/Configuration+Values+of+PHP-FPM
