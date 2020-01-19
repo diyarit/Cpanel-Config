@@ -176,14 +176,14 @@ sed -i '/^#SPAMDROP/s/^#//' /etc/csf/csf.blocklists
 sed -i '/^#SPAMEDROP/s/^#//' /etc/csf/csf.blocklists
 sed -i '/^#DSHIELD/s/^#//' /etc/csf/csf.blocklists
 sed -i '/^#HONEYPOT/s/^#//' /etc/csf/csf.blocklists
-sed -i '/^#MAXMIND/s/^#//' /etc/csf/csf.blocklists
+#sed -i '/^#MAXMIND/s/^#//' /etc/csf/csf.blocklists #FALSE POSITIVES
 sed -i '/^#BDE|/s/^#//' /etc/csf/csf.blocklists
 
 sed -i '/^SPAMDROP/s/|0|/|300|/' /etc/csf/csf.blocklists
 sed -i '/^SPAMEDROP/s/|0|/|300|/' /etc/csf/csf.blocklists
 sed -i '/^DSHIELD/s/|0|/|300|/' /etc/csf/csf.blocklists
 sed -i '/^HONEYPOT/s/|0|/|300|/' /etc/csf/csf.blocklists
-sed -i '/^MAXMIND/s/|0|/|300|/' /etc/csf/csf.blocklists
+#sed -i '/^MAXMIND/s/|0|/|300|/' /etc/csf/csf.blocklists #FALSE POSITIVES
 sed -i '/^BDE|/s/|0|/|300|/' /etc/csf/csf.blocklists
 
 sed -i '/^TOR/s/^TOR/#TOR/' /etc/csf/csf.blocklists
@@ -544,7 +544,7 @@ do
 done
 
 /scripts/rebuildhttpdconf
-/scripts/restartsrv_httpd
+/scripts/
 
 echo "Configuring JailShell..."
 echo "/etc/pki/java" >> /var/cpanel/jailshell-additional-mounts
@@ -574,6 +574,9 @@ done
 
 /scripts/restartsrv_httpd
 /scripts/restartsrv_apache_php_fpm
+
+echo "Disabling Greylisting ..."
+whmapi 1 disable_cpgreylist
 
 echo "Cleaning...."
 
