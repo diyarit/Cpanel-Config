@@ -553,7 +553,9 @@ echo "Configuring JailShell..."
 echo "/etc/pki/java" >> /var/cpanel/jailshell-additional-mounts
 
 echo "Miscellaneous..."
-chmod 755 /usr/bin/wget # DOES NOT HAVE EXECUTION PERMITS FOR EVERYONE BY DEFAULT
+# DOES NOT HAVE EXECUTION PERMITS FOR EVERYONE BY DEFAULT
+chmod 755 /usr/bin/wget
+chmod 755 /usr/bin/curl 
 
 echo "INSTALLING PHP ImageMagick..."
 yum -y install ImageMagick-devel ImageMagick-c++-devel ImageMagick-perl
