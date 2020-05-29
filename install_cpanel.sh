@@ -296,6 +296,10 @@ whmapi 1 set_tweaksetting key = php_upload_max_filesize value = 100
 whmapi 1 set_tweaksetting key = empty_trash_days value = 30
 whmapi1 set_tweaksetting key=publichtmlsubsonly value=0
 
+# DEACTIVATE PASSWORD RESET BY MAIL
+whmapi1 set_tweaksetting key=resetpass value=0
+whmapi1 set_tweaksetting key=resetpass_sub value=0
+
 sed -i 's/^phpopenbasedirhome=.*/phpopenbasedirhome=1/' /var/cpanel/cpanel.config
 sed -i 's/^minpwstrength=.*/minpwstrength=70/' /var/cpanel/cpanel.config
 
