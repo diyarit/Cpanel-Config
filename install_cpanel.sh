@@ -251,11 +251,11 @@ echo "NS ns1.$HOSTNAME_LONG" >> /etc/wwwacct.conf
 echo "NS2 ns2.$HOSTNAME_LONG" >> /etc/wwwacct.conf
 
 echo "Setting FTP..."
-sed -i '/^MaxClientsPerIP:.*/d' /var/cpanel/conf/pureftpd/local; echo "MaxClientsPerIP: 30" >> /var/cpanel/conf/pureftpd/local
-sed -i '/^RootPassLogins:.*/d' /var/cpanel/conf/pureftpd/local; echo "RootPassLogins: 'no'" >> /var/cpanel/conf/pureftpd/local
-sed -i '/^PassivePortRange:.*/d' /var/cpanel/conf/pureftpd/local; echo "PassivePortRange: $PASSV_MIN $PASSV_MAX" >> /var/cpanel/conf/pureftpd/local
-sed -i '/^TLSCipherSuite:.*/d' /var/cpanel/conf/pureftpd/local; echo 'TLSCipherSuite: "HIGH:MEDIUM:+TLSv1:!SSLv2:+SSLv3"' >> /var/cpanel/conf/pureftpd/local
-sed -i '/^LimitRecursion:.*/d' /var/cpanel/conf/pureftpd/local; echo "LimitRecursion: 50000 12" >> /var/cpanel/conf/pureftpd/local
+sed -i '/^MaxClientsPerIP:.*/d' / var / cpanel / conf / pureftpd / local; echo "MaxClientsPerIP: 30 " >> / var / cpanel / conf / pureftpd / local
+sed -i '/^RootPassLogins:.*/d' / var / cpanel / conf / pureftpd / local; echo "RootPassLogins: 'no'" >> / var / cpanel / conf / pureftpd / local
+sed -i '/^PassivePortRange:.*/d' / var / cpanel / conf / pureftpd / local; echo "PassivePortRange: $ PASSV_MIN  $ PASSV_MAX " >> / var / cpanel / conf / pureftpd / local
+sed -i '/^TLSCipherSuite:.*/d' / var / cpanel / conf / pureftpd / local; echo 'TLSCipherSuite: "HIGH: MEDIUM: + TLSv 1 :! SSLv 2 : + SSLv 3 "' >> / var / cpanel / conf / pureftpd / local
+sed -i '/^LimitRecursion:.*/d' / var / cpanel / conf / pureftpd / local; echo "LimitRecursion: 50000  12 " >> / var / cpanel / conf / pureftpd / local
 
 /usr/local/cpanel/scripts/setupftpserver pure-ftpd --force
 
