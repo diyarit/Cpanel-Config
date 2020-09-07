@@ -75,10 +75,16 @@ if [ -f /usr/local/cpanel/cpanel ]; then
         echo "cPanel already detected, not installed, only configured (CTRL + C to cancel)"
         sleep 10
 else
+	hostname -f > /root/hostname
+
         cd /home && curl -o latest -L https://securedownloads.cpanel.net/latest && sh latest --skip-cloudlinux
 	
 		echo "Waiting 5 minutes for you to finish installing remaining packages in the background to continue ..."
 	        sleep 300
+		
+	whmapi1 sethostname hostname=$(cat /root/hostname) # Fix hostname change by cprapid.com cpanel v90 https://docs.cpanel.net/knowledge-base/dns/automatically-issued-hostnames/
+	hostnamectl set-hostname $(cat /root/hostname)
+	rm -f /root/hostname
 fi
 echo "####### END INSTALLING CPANEL #######"
 
