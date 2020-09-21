@@ -491,12 +491,16 @@ sed  -i '/\[mysqld\]/a # WNPower pre-configured values' /etc/my.cnf
 echo "Updating a MariaDB 10.2..."
 whmapi1 start_background_mysql_upgrade version=10.2
 
-echo "Configuring disabled featureS..."
+echo "Configuring disabled features..."
 whmapi 1 update_featurelist featurelist = disabled api_shell = 0 agora = 0 analog = 0 boxtrapper = 0 traceaddy = 0 modules-php-pear = 0 modules-perl = 0 modules-ruby = 0 pgp = 0 phppgadmin = 0 postgres = 0 ror = 0 serverstatus = 0 webalizer = 0 clamavconnector_scan = 0 lists = 0
+
 echo "defaultSetting features..."
 whmapi1 update_featurelist featurelist=default modsecurity=1 zoneedit=1 emailtrace=1
-echo "defaultCreating package..."
-whmapi1 addpkg name=default featurelist=default quota=unlimited cgi=0 frontpage=0 language=es maxftp=20 maxsql=20 maxpop=unlimited maxlists=0 maxsub=30 maxpark=30 maxaddon=0 hasshell=1 bwlimit=unlimited MAX_EMAIL_PER_HOUR=300 MAX_DEFER_FAIL_PERCENTAGE=30
+
+echo "Creating default package..."
+# It IS ESTIMATED 80% OF THE DISC FOR DEFAULT ACCOUNT
+QUOTA=$(df -h /home/ | tail -1 | awk '{ print $2 }' | sed 's/G//' | awk '{ print ($1 * 1000) * 0.8 }')
+whmapi1 addpkg name=default featurelist=default quota=$QUOTA cgi=0 frontpage=0 language=es maxftp=20 maxsql=20 maxpop=unlimited maxlists=0 maxsub=30 maxpark=30 maxaddon=0 hasshell=1 bwlimit=unlimited MAX_EMAIL_PER_HOUR=300 MAX_DEFER_FAIL_PERCENTAGE=30
 
 echo "Setting server time..."
 yum install ntpdate -y
