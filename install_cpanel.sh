@@ -140,7 +140,7 @@ sed -i 's/^CONNLIMIT = .*/CONNLIMIT = "80;70,110;50,993;50,143;50,25;30"/g' /etc
 sed -i 's/^LF_PERMBLOCK_INTERVAL = .*/LF_PERMBLOCK_INTERVAL = "14400"/g' /etc/csf/csf.conf
 sed -i 's/^LF_INTERVAL = .*/LF_INTERVAL = "900"/g' /etc/csf/csf.conf
 sed -i 's/^PS_INTERVAL = .*/PS_INTERVAL = "60"/g' /etc/csf/csf.conf
-sed -i 's/^PS_LIMIT = .*/PS_LIMIT = "20"/g' /etc/csf/csf.conf
+sed -i 's/^PS_LIMIT = .*/PS_LIMIT = "60"/g' /etc/csf/csf.conf
 
 echo "Disabling alerts..."
 
@@ -488,8 +488,8 @@ sed  -i '/\[mysqld\]/a # WNPower pre-configured values' /etc/my.cnf
 
 /scripts/restartsrv_mysql
 
-echo "Updating a MariaDB 10.2..."
-whmapi1 start_background_mysql_upgrade version=10.2
+echo "Updating a MariaDB 10.3..."
+whmapi1 start_background_mysql_upgrade version=10.3
 
 echo "Configuring disabled features..."
 whmapi 1 update_featurelist featurelist = disabled api_shell = 0 agora = 0 analog = 0 boxtrapper = 0 traceaddy = 0 modules-php-pear = 0 modules-perl = 0 modules-ruby = 0 pgp = 0 phppgadmin = 0 postgres = 0 ror = 0 serverstatus = 0 webalizer = 0 clamavconnector_scan = 0 lists = 0
