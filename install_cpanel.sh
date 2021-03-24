@@ -279,7 +279,7 @@ whmapi1 set_tweaksetting key=email_send_limits_max_defer_fail_percentage value=2
 whmapi1 set_tweaksetting key=email_send_limits_min_defer_fail_to_trigger_protection value=15
 whmapi1 set_tweaksetting key=maxemailsperhour value=200
 whmapi1 set_tweaksetting key=permit_unregistered_apps_as_root value=1
-whmapi1 set_tweaksetting key=requiressl value=0
+whmapi1 set_tweaksetting key=requiressl value=1
 whmapi1 set_tweaksetting key=skipanalog value=1
 whmapi1 set_tweaksetting key=skipboxtrapper value=1
 whmapi1 set_tweaksetting key=skipwebalizer value=1
