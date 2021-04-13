@@ -820,6 +820,12 @@ done
 echo "Disabling Greylisting ..."
 whmapi 1 disable_cpgreylist
 
+echo "Disabling Welcome Panel..."
+# https://support.cpanel.net/hc/en-us/articles/1500003456602-How-to-Disable-the-Welcome-Panel-Server-Wide-for-Newly-Created-Accounts
+mkdir -pv /root/cpanel3-skel/.cpanel/nvdata; echo "1" > /root/cpanel3-skel/.cpanel/nvdata/xmainwelcomedismissed
+echo "Disabling cPanel Analytics..."
+whmapi1 participate_in_analytics enabled=0
+
 echo "Cleaning...."
 
 history -c
