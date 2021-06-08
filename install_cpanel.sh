@@ -823,6 +823,14 @@ whmapi 1 disable_cpgreylist
 echo "Disabling Welcome Panel..."
 # https://support.cpanel.net/hc/en-us/articles/1500003456602-How-to-Disable-the-Welcome-Panel-Server-Wide-for-Newly-Created-Accounts
 mkdir -pv /root/cpanel3-skel/.cpanel/nvdata; echo "1" > /root/cpanel3-skel/.cpanel/nvdata/xmainwelcomedismissed
+
+echo "Deactivating the new Glass theme for new accounts..."
+# https://support.cpanel.net/hc/en-us/articles/1500011608461
+# https://support.cpanel.net/hc/en-us/articles/4402125595415-How-to-disable-the-Glass-theme-feedback-banner-for-newly-created-accounts
+mkdir -pv /root/cpanel3-skel/.cpanel/nvdata/; echo -n "1" > /root/cpanel3-skel/.cpanel/nvdata/xmainNewStyleBannerDismissed
+mkdir -pv /root/cpanel3-skel/.cpanel/nvdata/; echo -n "1" > /root/cpanel3-skel/.cpanel/nvdata/xmainSwitchToPreviousBannerDismissed
+whmapi1 set_default type='default' name='basic'
+
 echo "Disabling cPanel Analytics..."
 whmapi1 participate_in_analytics enabled=0
 
