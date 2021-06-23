@@ -88,15 +88,22 @@ else
 fi
 echo "####### END INSTALLING CPANEL #######"
 
-echo "####### VERIFYING LICENSE #######" 
-
-ISLICENCED=$(/usr/local/cpanel/cpkeyclt 2>&1 | grep "Update succeeded" > /dev/null && echo OK || echo FAIL)
-if [ "$ISLICENCED" = "FAIL" ]; then
-	echo "There is a problem with the license, verify it and then run this script again"
-	exit 0
+echo "####### VERIFYING LICENSE #######"
+i=0
+while ! /usr/local/cpanel/cpkeyclt; do
+if [ $i -gt 30 ]; then
+	echo "It was retried more than $i times, it cannot be followed. License the IP and then run this script again."
+	exit 1
 fi
-
+	echo "CPanel license not detected, retry in 15 minutes..."
+	sleep 900
+	((i=i+1))
+done
 echo "####### END VERIFYING LICENSE #######"
+
+whmapi1 sethostname hostname=$(cat /root/hostname) # Fix hostname change by cprapid.com cpanel v90 https://docs.cpanel.net/knowledge-base/dns/automatically-issued-hostnames/
+hostnamectl set-hostname $(cat /root/hostname)
+rm -f /root/hostname
 
 echo "####### SETTING CSF #######"
 if [ ! -d /etc/csf ]; then
