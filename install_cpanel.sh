@@ -77,8 +77,13 @@ if [ -f /usr/local/cpanel/cpanel ]; then
 else
 	hostname -f > /root/hostname
 
-        cd /home && curl -o latest -L https://securedownloads.cpanel.net/latest && sh latest --skip-cloudlinux
-	
+	if grep -i "release 8" /etc/redhat-release > /dev/null; then
+		# In RHL8 install MySQL 8 by default, we switch to MariaDB: https://cloudlinux.zendesk.com/hc/en-us/articles/360020599839
+		mkdir -p /root/cpanel_profile/
+		echo "mysql-version=10.5" >> /root/cpanel_profile/cpanel.config
+	fi
+	cd /home && curl -o latest -L https://securedownloads.cpanel.net/latest && sh latest --skip-cloudlinux
+ 
 		echo "Waiting 5 minutes for you to finish installing remaining packages in the background to continue ..."
 	        sleep 300
 		
