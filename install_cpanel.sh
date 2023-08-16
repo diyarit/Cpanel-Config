@@ -66,9 +66,17 @@ echo "nameserver 209.244.0.3" >> /etc/resolv.conf # Level3
 echo "nameserver 8.8.4.4" >> /etc/resolv.conf # Google
 echo "######### END CONFIGURING DNS AND NETWORK ########"
 
-#echo "Changing runlevel to 3 ... "# It brought some problems with CentOS 7.7: https://bugs.centos.org/view.php?id=16440
-#systemctl isolate runlevel3.target
-#systemctl set-default runlevel3.target
+# In CentOS 7 I preconfigure in LTS
+if grep "release 7" /etc/redhat-release > /dev/null; then
+	echo "CentOS 7 detectado. Se pasa a LTS..."
+cat << EOF > /etc/cpupdate.conf
+CPANEL=lts
+RPMUP=daily
+SARULESUP=daily
+STAGING_DIR=/usr/local/cpanel
+UPDATES=daily
+EOF
+fi
 
 echo "####### INSTALLING CPANEL #######"
 if [ -f /usr/local/cpanel/cpanel ]; then
