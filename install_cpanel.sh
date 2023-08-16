@@ -770,14 +770,18 @@ QUOTA=$(df -h /home/ | tail -1 | awk '{ print $2 }' | sed 's/G//' | awk '{ print
 whmapi1 addpkg name=default featurelist=default quota=$QUOTA cgi=0 frontpage=0 language=es maxftp=20 maxsql=20 maxpop=unlimited maxlists=0 maxsub=30 maxpark=30 maxaddon=0 hasshell=1 bwlimit=unlimited MAX_EMAIL_PER_HOUR=300 MAX_DEFER_FAIL_PERCENTAGE=30
 
 echo "Setting server time..."
-yum install ntpdate -y
-echo "Synchronizing date with pool.ntp.org..."
-ntpdate 0.pool.ntp.org 1.pool.ntp.org 2.pool.ntp.org 3.pool.ntp.org 0.south-america.pool.ntp.org
-if [ -f /usr/share/zoneinfo/America/New_York ]; then
-        echo "Configuring TIME ZONE America/New_York..."
-        mv /etc/localtime /etc/localtime.old
-        ln -s /usr/share/zoneinfo/America/New_York /etc/localtime
+if grep -i "release 8" /etc/redhat-release > /dev/null; then
+        echo "Instalando Chrony..."
+        yum install chrony -y
+        systemctl enable chronyd
+else
+        yum install ntpdate -y
+        echo "Sincronizando fecha con pool.ntp.org..."
+        ntpdate 0.pool.ntp.org 1.pool.ntp.org 2.pool.ntp.org 3.pool.ntp.org 0.south-america.pool.ntp.org
 fi
+
+echo "Setting Timezone..."
+timedatectl set-timezone "America/Argentina/Buenos_Aires"
 echo "Setting BIOS date..."
 hwclock -r
 
