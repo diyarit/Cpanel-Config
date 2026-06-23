@@ -762,7 +762,7 @@ sed -i '/^#  pre-configured values.*/d' /etc/my.cnf
 sed  -i '/\[mysqld\]/a\ ' /etc/my.cnf
 sed  -i '/\[mysqld\]/a sql_mode = ALLOW_INVALID_DATES,NO_ENGINE_SUBSTITUTION' /etc/my.cnf
 sed  -i '/\[mysqld\]/a local-infile=0' /etc/my.cnf
-sed  -i '/\[mysqld\]/a # WNPower pre-configured values' /etc/my.cnf
+sed  -i '/\[mysqld\]/a # pre-configured values' /etc/my.cnf
 
 /scripts/restartsrv_mysql
 
