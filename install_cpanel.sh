@@ -5,7 +5,7 @@ HOSTNAME=$(hostname -f)
 PASSV_PORT="50000:50100";
 PASSV_MIN=$(echo $PASSV_PORT | cut -d':' -f1)
 PASSV_MAX=$(echo $PASSV_PORT | cut -d':' -f2)
-ISVPS=$(((dmidecode -t system 2>/dev/null | grep "Manufacturer" | grep -i 'VMware\|KVM\|Bochs\|Virtual\|HVM' > /dev/null) || [ -f /proc/vz/veinfo ]) && echo "SI" || echo "NO")
+ISVPS=$(((dmidecode -t system 2>/dev/null | grep "Manufacturer" | grep -i 'VMware\|KVM\|Bochs\|Virtual\|HVM' > /dev/null) || [ -f /proc/vz/veinfo ]) && echo "YES" || echo "NO")
 
 echo "########  #### ##    ##    ###    ########     #### ########"
 echo "##     ##  ##   ##  ##    ## ##   ##     ##     ##     ##"    
@@ -21,104 +21,107 @@ echo ""
 echo ""
 
 if [ ! -f /etc/redhat-release ]; then
-	echo "CentOS was not detected. Aborting"
+	echo "CentOS not detected. Aborting."
 	exit 0
 fi
 
-echo "This script installs and pre-configures cPanel (CTRL + C to cancel)"
-sleep 10
+echo "This script installs and pre-configures cPanel on a freshly installed server"
+echo "DO NOT RUN ON A SERVER WITH cPanel ALREADY RUNNING (CTRL + C to cancel)"
+sleep 30
 
-echo "####### SETTING CENTOS #######"
-wget https://raw.githubusercontent.com/diyarit/Centos-Config/master/configure_centos.sh -O "$CWD/configure_centos.sh" && bash "$CWD/configure_centos.sh"
+echo "####### CONFIGURING CENTOS #######"
+wget https://raw.githubusercontent.com/diyarit/Linux-Config/master/configure_linux.sh -O "$CWD/configure_linux.sh" && bash "$CWD/configure_linux.sh"
 
 echo "####### CPANEL PRE-CONFIGURATION ##########"
 echo "Disabling yum-cron..."
-yum erase yum-cron -y
+dnf erase yum-cron -y 2>/dev/null # CentOS
+dnf erase dnf-automatic -y 2>/dev/null # Almalinux
 
-systemctl stop NetworkManager.service
-systemctl disable NetworkManager.service
-yum erase NetworkManager -y
+echo "######### START CONFIGURING DNS AND NETWORK ########"
+echo "Disabling IPv6 ...."
 
-echo "######### CONFIGURING DNS AND NETWORK ########"
-NETWORK=$(route -n | awk '$1 == "0.0.0.0" {print $8}')
-ETHCFG="/etc/sysconfig/network-scripts/ifcfg-$NETWORK"
+sed -i '/net.ipv6.conf.*.disable_ipv6/d' /etc/sysctl.conf
+echo "net.ipv6.conf.all.disable_ipv6 = 1 # Disable IPv6" >> /etc/sysctl.conf
+echo "net.ipv6.conf.default.disable_ipv6 = 1 # Disable IPv6" >> /etc/sysctl.conf
 
-sed -i '/^NM_CONTROLLED=.*/d' $ETHCFG
-sed -i '/^DNS1=.*/d' $ETHCFG
-sed -i '/^DNS2=.*/d' $ETHCFG
-	
-echo "Configuring network..."
-echo "PEERDNS=no" >> $ETHCFG
-echo "NM_CONTROLLED=no" >> $ETHCFG
-echo "DNS1=127.0.0.1" >> $ETHCFG
-echo "DNS2=8.8.8.8" >> $ETHCFG
+sysctl -p
 
-echo "Rewriting /etc/resolv.conf..."
-
-echo "options timeout:5 attempts:2" > /etc/resolv.conf
-echo "nameserver 127.0.0.1" >> /etc/resolv.conf # local
-echo "nameserver 208.67.222.222" >> /etc/resolv.conf # OpenDNS
-echo "nameserver 8.20.247.20" >> /etc/resolv.conf # Comodo
-echo "nameserver 8.8.8.8" >> /etc/resolv.conf # Google
-echo "nameserver 199.85.126.10" >> /etc/resolv.conf # Norton
-echo "nameserver 8.26.56.26" >> /etc/resolv.conf # Comodo
-echo "nameserver 209.244.0.3" >> /etc/resolv.conf # Level3
-echo "nameserver 8.8.4.4" >> /etc/resolv.conf # Google
 echo "######### END CONFIGURING DNS AND NETWORK ########"
 
-# In CentOS 7 I preconfigure in LTS
-if grep "release 7" /etc/redhat-release > /dev/null; then
-	echo "CentOS 7 detectado. Se pasa a LTS..."
-cat << EOF > /etc/cpupdate.conf
-CPANEL=lts
-RPMUP=daily
-SARULESUP=daily
-STAGING_DIR=/usr/local/cpanel
-UPDATES=daily
-EOF
-fi
+echo "####### DISABLING SELINUX #######"
+
+# PRE-REQUISITES TO INSTALL cPANEL
+sed -i 's/^SELINUX=.*/SELINUX=disabled/' /etc/sysconfig/selinux 2>/dev/null
+setenforce 0
+dnf remove setroubleshoot* -y
+dnf install crontabs cronie cronie-anacron -y
+dnf install openldap-compat -y # Required by cpanel_php_fpm service AL9
+
+echo "####### END DISABLING SELINUX #######"
 
 echo "####### INSTALLING CPANEL #######"
 if [ -f /usr/local/cpanel/cpanel ]; then
-        echo "cPanel already detected, not installed, only configured (CTRL + C to cancel)"
+        echo "cPanel already detected, not installing, only configuring (CTRL + C to cancel)"
         sleep 10
+
+	echo "Updating just in case..."
+	/script/upcp
 else
 	hostname -f > /root/hostname
 
-	if grep -i "release 8" /etc/redhat-release > /dev/null; then
-		# In RHL8 install MariaDB 10.6 by default, we switch to MariaDB: https://cloudlinux.zendesk.com/hc/en-us/articles/360020599839
-		mkdir -p /root/cpanel_profile/
-                echo "mysql-version=10.6" >> /root/cpanel_profile/cpanel.config
-	fi
+	# INSTALL MARIADB 10.11 BY DEFAULT https://cloudlinux.zendesk.com/hc/en-us/articles/360020599839
+	mkdir -p /root/cpanel_profile/
+	echo "mysql-version=10.11" >> /root/cpanel_profile/cpanel.config
+
 	cd /home && curl -o latest -L https://securedownloads.cpanel.net/latest && sh latest --skip-cloudlinux
- 
-		echo "Waiting 5 minutes for you to finish installing remaining packages in the background to continue ..."
-	        sleep 300
-		
-	whmapi1 sethostname hostname=$(cat /root/hostname) # Fix hostname change by cprapid.com cpanel v90 https://docs.cpanel.net/knowledge-base/dns/automatically-issued-hostnames/
-	hostnamectl set-hostname $(cat /root/hostname)
-	rm -f /root/hostname
+
+	rm -f /root/cpanel_profile/cpanel.config
+	echo "Waiting 5 minutes for background package installation to complete before continuing..."
+	sleep 300
 fi
 echo "####### END INSTALLING CPANEL #######"
 
-echo "####### VERIFYING LICENSE #######"
+PUBLIC_IP=$(curl -m 10 -L checkip.amazonaws.com 2>/dev/null)
+echo "####### CHECKING LICENSE #######"
 i=0
-while ! (curl -m 10 -L "https://verify.cpanel.net?ip=$(curl -m 10 -L checkip.amazonaws.com 2>/dev/null)" 2>/dev/null | grep -v "active on" | grep "active" > /dev/null); do
+while ! (curl -m 10 -L "https://verify.cpanel.net?ip=$PUBLIC_IP" 2>/dev/null | grep -v "active on" | grep "active" > /dev/null); do
 	if [ $i -gt 30 ]; then
-	echo "It was retried more than $i times, it cannot be followed. License the IP and then run this script again."
-	exit 1
-fi
-	echo "CPanel license not detected, retry in 15 minutes..."
+        	echo "Retried more than $i times, cannot continue. License the IP and run this script again."
+        	exit 1
+	fi
+        
+	echo "cPanel license not detected, retrying in 5 minutes..."
         sleep 300
         ((i=i+1))
 done
-echo "####### END VERIFYING LICENSE #######"
+/usr/local/cpanel/cpkeyclt
+
+echo "####### END CHECKING LICENSE #######"
 
 whmapi1 sethostname hostname=$(cat /root/hostname) # Fix hostname change by cprapid.com cpanel v90 https://docs.cpanel.net/knowledge-base/dns/automatically-issued-hostnames/
 hostnamectl set-hostname $(cat /root/hostname)
 rm -f /root/hostname
 
-echo "####### SETTING CSF #######"
+# NAT detection and configuration
+/usr/local/cpanel/scripts/build_cpnat
+
+# Force MariaDB instead of MySQL
+if ! grep "mysql-version=10.11" /var/cpanel/cpanel.config > /dev/null; then
+        dnf -y remove mysql-community-*
+        rm -rf /var/lib/mysql
+        sed -i 's/mysql-version=.*/mysql-version=10.11/g' /var/cpanel/cpanel.config
+        whmapi1 start_background_mysql_upgrade version=10.11
+
+        sleep 600
+fi
+
+# SWAP
+if ! free | awk '/^Swap:/ {exit (!$2 || ($2<4194300))}'; then
+	echo "SWAP not detected or less than 4GB. Configuring..."
+	/usr/local/cpanel/bin/create-swap --size 4G -v # Default 4GB
+fi
+
+echo "####### CONFIGURING CSF #######"
 if [ ! -d /etc/csf ]; then
         echo "csf not detected, downloading!"
 	touch /etc/sysconfig/iptables
@@ -128,22 +131,18 @@ if [ ! -d /etc/csf ]; then
 	systemctl enable iptables
 	systemctl enable ip6tables
 
-echo "Disabling Firewalld..."
+	echo "Disabling Firewalld..."
         systemctl disable firewalld
         systemctl stop firewalld
 
-        yum remove firewalld -y
-        yum -y install iptables-services wget perl unzip net-tools perl-libwww-perl perl-LWP-Protocol-https perl-GDGraph
+        dnf remove firewalld -y
+        dnf -y install iptables-services wget perl unzip net-tools perl-libwww-perl perl-LWP-Protocol-https perl-GDGraph
 
-      	# FIX NFTABLES
-	wget https://raw.githubusercontent.com/wnpower/Scripts-Utils-Linux/master/vps/fix_nftables_al8.sh -O /var/fix_nftables_al8.sh; chmod 755 /var/fix_nftables_al8.sh; /var/fix_nftables_al8.sh; rm -f /var/fix_nftables_al8.sh
- 
-	cd /root && rm -f ./csf.tgz; wget https://download.configserver.com/csf.tgz && tar xvfz ./csf.tgz && cd ./csf && sh ./install.sh
+	dnf install cpanel-csf -y
+	echo "" > /etc/csf/downloadservers # Old update server vestiges remain
 fi
 
-echo " Setting CSF..."
-yum remove firewalld -y
-yum -y install iptables-services wget perl unzip net-tools perl-libwww-perl perl-LWP-Protocol-https perl-GDGraph
+echo " Configuring CSF..."
 
 sed -i 's/^TESTING = .*/TESTING = "0"/g' /etc/csf/csf.conf
 sed -i 's/^ICMP_IN = .*/ICMP_IN = "0"/g' /etc/csf/csf.conf
@@ -196,7 +195,7 @@ sed -i 's/^PT_USERTIME = .*/PT_USERTIME = "0"/g' /etc/csf/csf.conf
 sed -i 's/^PT_USERPROC = .*/PT_USERPROC = "0"/g' /etc/csf/csf.conf
 sed -i 's/^PT_USERRSS = .*/PT_USERRSS = "0"/g' /etc/csf/csf.conf
 
-echo "Activating passive FTP range ..."
+echo "Enabling passive FTP range..."
 # IPv4
 CURR_CSF_IN=$(grep "^TCP_IN" /etc/csf/csf.conf | cut -d'=' -f2 | sed 's/\ //g' | sed 's/\"//g' | sed "s/,$PASSV_PORT,/,/g" | sed "s/,$PASSV_PORT//g" | sed "s/$PASSV_PORT,//g" | sed "s/,,//g")
 sed -i "s/^TCP_IN.*/TCP_IN = \"$CURR_CSF_IN,$PASSV_PORT\"/" /etc/csf/csf.conf
@@ -211,19 +210,19 @@ sed -i "s/^TCP6_IN.*/TCP6_IN = \"$CURR_CSF_IN6,$PASSV_PORT\"/" /etc/csf/csf.conf
 CURR_CSF_OUT6=$(grep "^TCP6_OUT" /etc/csf/csf.conf | cut -d'=' -f2 | sed 's/\ //g' | sed 's/\"//g' | sed "s/,$PASSV_PORT,/,/g" | sed "s/,$PASSV_PORT//g" | sed "s/$PASSV_PORT,//g" | sed "s/,,//g")
 sed -i "s/^TCP6_OUT.*/TCP6_OUT = \"$CURR_CSF_OUT6,$PASSV_PORT\"/" /etc/csf/csf.conf
 
-echo "Enabling blacklists..."
+echo "Enabling blocklists..."
 sed -i '/^#SPAMDROP/s/^#//' /etc/csf/csf.blocklists
 sed -i '/^#SPAMEDROP/s/^#//' /etc/csf/csf.blocklists
 sed -i '/^#DSHIELD/s/^#//' /etc/csf/csf.blocklists
 sed -i '/^#HONEYPOT/s/^#//' /etc/csf/csf.blocklists
-#sed -i '/^#MAXMIND/s/^#//' /etc/csf/csf.blocklists #FALSE POSITIVES
+#sed -i '/^#MAXMIND/s/^#//' /etc/csf/csf.blocklists # FALSE POSITIVES
 sed -i '/^#BDE|/s/^#//' /etc/csf/csf.blocklists
 
 sed -i '/^SPAMDROP/s/|0|/|300|/' /etc/csf/csf.blocklists
 sed -i '/^SPAMEDROP/s/|0|/|300|/' /etc/csf/csf.blocklists
 sed -i '/^DSHIELD/s/|0|/|300|/' /etc/csf/csf.blocklists
 sed -i '/^HONEYPOT/s/|0|/|300|/' /etc/csf/csf.blocklists
-#sed -i '/^MAXMIND/s/|0|/|300|/' /etc/csf/csf.blocklists #FALSE POSITIVES
+#sed -i '/^MAXMIND/s/|0|/|300|/' /etc/csf/csf.blocklists # FALSE POSITIVES
 sed -i '/^BDE|/s/|0|/|300|/' /etc/csf/csf.blocklists
 
 sed -i '/^TOR/s/^TOR/#TOR/' /etc/csf/csf.blocklists
@@ -240,16 +239,16 @@ cat > /etc/csf/csf.rignore << EOF
 .search.msn.com
 EOF
 
-echo "Opening ports in CSF for TCP_OUT cPanel migrations..."
+echo "Opening ports in CSF for cPanel migration TCP_OUT..."
 CPANEL_PORTS="2082,2083"
 CURR_CSF_OUT=$(grep "^TCP_OUT" /etc/csf/csf.conf | cut -d'=' -f2 | sed 's/\ //g' | sed 's/\"//g' | sed "s/,$CPANEL_PORTS,/,/g" | sed "s/,$CPANEL_PORTS//g" | sed "s/$CPANEL_PORTS,//g" | sed "s/,,//g")
 sed -i "s/^TCP_OUT.*/TCP_OUT = \"$CURR_CSF_OUT,$CPANEL_PORTS\"/" /etc/csf/csf.conf
 
-echo "Activating DYNDNS..."
+echo "Enabling DYNDNS..."
 sed -i 's/^DYNDNS = .*/DYNDNS = "300"/g' /etc/csf/csf.conf
 sed -i 's/^DYNDNS_IGNORE = .*/DYNDNS_IGNORE = "1"/g' /etc/csf/csf.conf
 
-echo "Adding a csf.dyndns..."
+echo "Adding to csf.dyndns..."
 sed -i '/gmail.com/d' /etc/csf/csf.dyndns
 sed -i '/public.pyzor.org/d' /etc/csf/csf.dyndns
 echo "tcp|out|d=25|d=smtp.gmail.com" >> /etc/csf/csf.dyndns
@@ -264,7 +263,7 @@ csf -r
 service lfd restart
 
 echo "####### END CONFIGURING CSF #######"
-echo "####### SETTING CPANEL #######"
+echo "####### CONFIGURING CPANEL #######"
 
 if [ ! -d /usr/local/cpanel ]; then
 	echo "cPanel not detected. Aborting."
@@ -273,35 +272,38 @@ fi
 
 HOSTNAME_LONG=$(hostname -d)
 
-echo "DNS TTL down to 15 min..."
-sed -i 's / ^ TTL . * / TTL 900 /' /etc/wwwacct.conf
+echo "Lowering DNS TTL to 15 minutes..."
+sed -i 's/^TTL .*/TTL 900/' /etc/wwwacct.conf
 
 echo "Changing contact email..."
 sed -i '/^CONTACTEMAIL\ .*/d' /etc/wwwacct.conf
 echo "CONTACTEMAIL hostmaster@$HOSTNAME_LONG" >> /etc/wwwacct.conf
 
-echo "Changing default DNSs..."
+echo "Changing default DNS servers..."
 sed -i '/^NS\ .*/d' /etc/wwwacct.conf
 sed -i '/^NS2\ .*/d' /etc/wwwacct.conf
 sed -i '/^NS3\ .*/d' /etc/wwwacct.conf
 echo "NS ns1.$HOSTNAME_LONG" >> /etc/wwwacct.conf
 echo "NS2 ns2.$HOSTNAME_LONG" >> /etc/wwwacct.conf
 
-echo "Setting FTP..."
-sed -i '/^MaxClientsPerIP:.*/d' / var / cpanel / conf / pureftpd / local; echo "MaxClientsPerIP: 30 " >> / var / cpanel / conf / pureftpd / local
-sed -i '/^RootPassLogins:.*/d' / var / cpanel / conf / pureftpd / local; echo "RootPassLogins: 'no'" >> / var / cpanel / conf / pureftpd / local
-sed -i '/^PassivePortRange:.*/d' / var / cpanel / conf / pureftpd / local; echo "PassivePortRange: $ PASSV_MIN  $ PASSV_MAX " >> / var / cpanel / conf / pureftpd / local
-sed -i '/^TLSCipherSuite:.*/d' / var / cpanel / conf / pureftpd / local; echo 'TLSCipherSuite: "HIGH: MEDIUM: + TLSv 1 :! SSLv 2 : + SSLv 3 "' >> / var / cpanel / conf / pureftpd / local
-sed -i '/^LimitRecursion:.*/d' / var / cpanel / conf / pureftpd / local; echo "LimitRecursion: 50000  12 " >> / var / cpanel / conf / pureftpd / local
+echo "Configuring default IP for accounts..."
+sed -i "s/^ADDR .*/ADDR $PUBLIC_IP/" /etc/wwwacct.conf
+
+echo "Configuring FTP..."
+sed -i '/^MaxClientsPerIP:.*/d' /var/cpanel/conf/pureftpd/local > /dev/null; echo "MaxClientsPerIP: 30" >> /var/cpanel/conf/pureftpd/local
+sed -i '/^RootPassLogins:.*/d' /var/cpanel/conf/pureftpd/local > /dev/null; echo "RootPassLogins: 'no'" >> /var/cpanel/conf/pureftpd/local
+sed -i '/^PassivePortRange:.*/d' /var/cpanel/conf/pureftpd/local > /dev/null; echo "PassivePortRange: $PASSV_MIN $PASSV_MAX" >> /var/cpanel/conf/pureftpd/local
+sed -i '/^TLSCipherSuite:.*/d' /var/cpanel/conf/pureftpd/local > /dev/null; echo 'TLSCipherSuite: "HIGH:MEDIUM:+TLSv1:!SSLv2:+SSLv3"' >> /var/cpanel/conf/pureftpd/local
+sed -i '/^LimitRecursion:.*/d' /var/cpanel/conf/pureftpd/local > /dev/null; echo "LimitRecursion: 50000 12" >> /var/cpanel/conf/pureftpd/local
 
 /usr/local/cpanel/scripts/setupftpserver pure-ftpd --force
 
-echo "Activating module ip_conntrack_ftp..."
+echo "Enabling ip_conntrack_ftp module..."
 modprobe ip_conntrack_ftp
 echo "modprobe ip_conntrack_ftp" >> /etc/rc.modules
 chmod +x /etc/rc.modules
 
-echo "Setting Tweak Settings..."
+echo "Configuring Tweak Settings..."
 whmapi1 set_tweaksetting key=allowremotedomains value=1
 whmapi1 set_tweaksetting key=allowunregistereddomains value=1
 whmapi1 set_tweaksetting key=chkservd_check_interval value=120
@@ -310,7 +312,7 @@ whmapi1 set_tweaksetting key=email_send_limits_max_defer_fail_percentage value=2
 whmapi1 set_tweaksetting key=email_send_limits_min_defer_fail_to_trigger_protection value=15
 whmapi1 set_tweaksetting key=maxemailsperhour value=200
 whmapi1 set_tweaksetting key=permit_unregistered_apps_as_root value=1
-whmapi1 set_tweaksetting key=requiressl value=1
+whmapi1 set_tweaksetting key=requiressl value=0
 whmapi1 set_tweaksetting key=skipanalog value=1
 whmapi1 set_tweaksetting key=skipboxtrapper value=1
 whmapi1 set_tweaksetting key=skipwebalizer value=1
@@ -328,13 +330,15 @@ whmapi1 set_tweaksetting key=email_outbound_spam_detect_threshold value=120
 whmapi1 set_tweaksetting key=skipspambox value=0
 whmapi1 set_tweaksetting key=skipmailman value=1
 whmapi1 set_tweaksetting key=jaildefaultshell value=1
-whmapi 1 set_tweaksetting key = php_post_max_size value = 100
-whmapi 1 set_tweaksetting key = php_upload_max_filesize value = 100
-whmapi 1 set_tweaksetting key = empty_trash_days value = 30
+whmapi1 set_tweaksetting key=php_post_max_size value=100
+whmapi1 set_tweaksetting key=php_upload_max_filesize value=100
+whmapi1 set_tweaksetting key=empty_trash_days value=30
 whmapi1 set_tweaksetting key=publichtmlsubsonly value=0
 whmapi1 set_tweaksetting key=proxysubdomainsoverride value=0
+whmapi1 set_tweaksetting key=display_cpanel_promotions value=0
+whmapi1 set_tweaksetting key=create_account_dmarc value=1
 
-# DEACTIVATE PASSWORD RESET BY MAIL
+# DISABLE PASSWORD RESET BY MAIL
 whmapi1 set_tweaksetting key=resetpass value=0
 whmapi1 set_tweaksetting key=resetpass_sub value=0
 
@@ -343,9 +347,9 @@ sed -i 's/^minpwstrength=.*/minpwstrength=70/' /var/cpanel/cpanel.config
 
 /usr/local/cpanel/etc/init/startcpsrvd
 
-# CONFIGURATIONS THAT CANNOT BE DONE BY CONSOLE
-echo "Configuring the inconfigurable from console..."
-yum install -y curl
+# SETTINGS THAT CANNOT BE CONFIGURED FROM CONSOLE
+echo "Configuring non-configurable settings from console..."
+dnf install -y curl
 
 touch $CWD/wpwhmcookie.txt
 SESS_CREATE=$(whmapi1 create_user_session user=root service=whostmgrd)
@@ -356,16 +360,17 @@ curl -sk "https://127.0.0.1:2087/$SESS_TOKEN/login/?session=$SESS_QS" --cookie-j
 
 echo "Disabling compilers..."
 curl -sk "https://127.0.0.1:2087/$SESS_TOKEN/scripts2/tweakcompilers" --cookie $CWD/wpwhmcookie.txt --data 'action=Disable+Compilers' > /dev/null
-echo "Disabling SMTP Restrictions (se usa CSF)..."
+echo "Disabling SMTP Restrictions (using CSF instead)..."
 curl -sk "https://127.0.0.1:2087/$SESS_TOKEN/scripts2/smtpmailgidonly?action=Disable" --cookie $CWD/wpwhmcookie.txt > /dev/null
 echo "Disabling Shell Fork Bomb Protection..."
 curl -sk "https://127.0.0.1:2087/$SESS_TOKEN/scripts2/modlimits?limits=0" --cookie $CWD/wpwhmcookie.txt > /dev/null
 echo "Enabling Background Process Killer..."
 curl -sk "https://127.0.0.1:2087/$SESS_TOKEN/json-api/configurebackgroundprocesskiller" --cookie $CWD/wpwhmcookie.txt --data 'api.version=1&processes_to_kill=BitchX&processes_to_kill=bnc&processes_to_kill=eggdrop&processes_to_kill=generic-sniffers&processes_to_kill=guardservices&processes_to_kill=ircd&processes_to_kill=psyBNC&processes_to_kill=ptlink&processes_to_kill=services&force=1' > /dev/null
 
-echo "Setting Apache..."
+echo "Configuring Apache..."
 # BASIC CONFIG
 curl -sk "https://127.0.0.1:2087/$SESS_TOKEN/scripts2/saveglobalapachesetup" --cookie $CWD/wpwhmcookie.txt --data 'module=Apache&find=&___original_sslciphersuite=ECDHE-ECDSA-AES256-GCM-SHA384%3AECDHE-RSA-AES256-GCM-SHA384%3AECDHE-ECDSA-CHACHA20-POLY1305%3AECDHE-RSA-CHACHA20-POLY1305%3AECDHE-ECDSA-AES128-GCM-SHA256%3AECDHE-RSA-AES128-GCM-SHA256%3AECDHE-ECDSA-AES256-SHA384%3AECDHE-RSA-AES256-SHA384%3AECDHE-ECDSA-AES128-SHA256%3AECDHE-RSA-AES128-SHA256&sslciphersuite_control=default&___original_sslprotocol=TLSv1.2&sslprotocol_control=default&___original_loglevel=warn&loglevel=warn&___original_traceenable=Off&traceenable=Off&___original_serversignature=Off&serversignature=Off&___original_servertokens=ProductOnly&servertokens=ProductOnly&___original_fileetag=None&fileetag=None&___original_root_options=&root_options=FollowSymLinks&root_options=IncludesNOEXEC&root_options=SymLinksIfOwnerMatch&___original_startservers=5&startservers_control=default&___original_minspareservers=5&minspareservers_control=default&___original_maxspareservers=10&maxspareservers_control=default&___original_optimize_htaccess=search_homedir_below&optimize_htaccess=search_homedir_below&___original_serverlimit=256&serverlimit_control=default&___original_maxclients=150&maxclients_control=other&maxclients_other=100&___original_maxrequestsperchild=10000&maxrequestsperchild_control=default&___original_keepalive=On&keepalive=1&___original_keepalivetimeout=5&keepalivetimeout_control=3&___original_maxkeepaliverequests=100&maxkeepaliverequests_control=20&___original_timeout=300&timeout_control=default&___original_symlink_protect=Off&symlink_protect=0&its_for_real=1' > /dev/null
+
 # DIRECTORYINDEX
 curl -sk "https://127.0.0.1:2087/$SESS_TOKEN/scripts2/save_apache_directoryindex" --cookie $CWD/wpwhmcookie.txt --data 'valid_submit=1&dirindex=index.php&dirindex=index.php5&dirindex=index.php4&dirindex=index.php3&dirindex=index.perl&dirindex=index.pl&dirindex=index.plx&dirindex=index.ppl&dirindex=index.cgi&dirindex=index.jsp&dirindex=index.jp&dirindex=index.phtml&dirindex=index.shtml&dirindex=index.xhtml&dirindex=index.html&dirindex=index.htm&dirindex=index.wml&dirindex=Default.html&dirindex=Default.htm&dirindex=default.html&dirindex=default.htm&dirindex=home.html&dirindex=home.htm&dirindex=index.js' > /dev/null
 
@@ -375,30 +380,30 @@ curl -sk "https://127.0.0.1:2087/$SESS_TOKEN/scripts2/save_apache_mem_limits" --
 service httpd restart
 
 # DOVECOT
-curl -sk "https://127.0.0.1:2087/$SESS_TOKEN/scripts2/savedovecotsetup" --cookie $ CWD / wpwhmcookie.txt --data 'protocols_enabled_imap = on & protocols_enabled_pop3 = on & ipv6 = on & enable_plaintext_auth = yes & yesssl_cipher_list = ECDHE-ECDSA-CHACHA20-POLY1305% 3AECDHE-RSA-CHACHA20-POLY1305% 3AECDHE-ECDSA-AES128-GCM-SHA256% 3AECDHE-RSA-AES128-GCM-SHA256% -AECA-6A GCA-6A GCA-6A GCA-6A-GCA-6A GCA-6A-GCAA6E-GCA-6A GCA-6A-GCAA6E-GCAA6E-GCAA6E-GCAA6E-GCAA6E-GCAA6E-A6A-GCAA6E-GCAA6E-GCAA6E-GCAA6E-GCAA6E-GCAA6E-GCAA6A-GCAA6E-GCAA6E-GCAA6A-GCAA6E-GCAA6A-GCAA6E-6% GCA-A6D RSA-AES256-GCM-SHA384% 3ADHE-RSA-AES128-GCM-SHA256% 3ADHE-RSA-AES256-GCM-SHA384% 3AECDHE-ECDSA-AES128-SHA256% 3AECDHE-RSA-AES128-SHA256-ECA-AES128-ECA-AES128-ECA-AES128-ECA-AES128-ECA-AES128-ECA-AES128-ECA-AES128-ECA-AES128-ECA-AES128-ECA-AES128-ECA-AES128-ECA-AES128-ECA-AES128-ECA-AES128-ECA-AES128-SHA256 SHA% 3AECDHE-RSA-AES256-SHA384% 3AECDHE-RSA-AES128-SHA% 3AECDHE-ECDSA-AES256-SHA384% 3AECDHE-ECDSA-AES256-SHA% 3AECDHE-RSA-AES256-SHA% 3ADHE-RSA-AES128-SHA256% 3ADHE-RSA-AES128-SHA% 3ADHE-RSA-AES256-SHA256% 3ADHE-RSA-AES256-SHA% 3AECDHE-ECDSA-DES-CBC3-SHA% 3AECDHE-RSA-DES-CBC3-SHA% 3AEDH-RSA-RSA-RSA-RSA-RSA CBC3-SHA% 3AAES128-GCM-SHA256% 3AAES256-GCM-SHA384% 3AAES128-SHA256% 3AAES256-SHA256% 3AAES128-SHA% 3AAES256-SHA% 3ADES-CBC3-SHA% 3A% 21DSS & ssl_min_protocol = TLSv1 & max_mail_processes = 512 & mail_process_size = 512 & protocol_imap.mail_max_userip_connections = 20 protocol_imap.imap_idle_notify_interval & = 24 & protocol_pop3.mail_max_userip_connections = 3 & login_processes_count = 2 & login_max_processes_count = 50 & login_process_size = 128 & auth_cache_size = 1M & auth_cache_ttl = 3600 & auth_cache_negative_ttl = 3600 & login_process_per_connection = no & config_vsz_limit = 2048 mailbox_idle_check_interval & = 30 & mdbox_rotate_size = 10M & mdbox_rotate_interval = 0 & incoming_reached_quota = bounce & lmtp_process_min_avail = 0 & lmtp_process_limit = 500 & lmtp_user_concurrency_limit = 4 & expire_trash = 1 & expire_trash_ttl = 30 & include_trash_in_quota = 1 'auth_cache_size = 1M & auth_cache_ttl = 3600 & auth_cache_negative_ttl = 3600 & login_process_per_connection = no & config_vsz_limit = 2048 mailbox_idle_check_interval & = 30 & mdbox_rotate_size = 10M & mdbox_rotate_interval = 0 & incoming_reached_quota = bounce & lmtp_process_min_avail = 0 & lmtp_process_limit = 500 & lmtp_user_concurrency_limit = 4 & expire_trash = 1 & expire_trash_ttl = 30 & include_trash_in_quota = 1 'auth_cache_size = 1M & auth_cache_ttl = 3600 & auth_cache_negative_ttl = 3600 & login_process_per_connection = no & config_vsz_limit = 2048 mailbox_idle_check_interval & = 30 & mdbox_rotate_size = 10M & mdbox_rotate_interval = 0 & incoming_reached_quota = bounce & lmtp_process_min_avail = 0 & lmtp_process_limit = 500 & lmtp_user_concurrency_limit = 4 & expire_trash = 1 & expire_trash_ttl = 30 & include_trash_in_quota = 1 '
+curl -sk "https://127.0.0.1:2087/$SESS_TOKEN/scripts2/savedovecotsetup" --cookie $CWD/wpwhmcookie.txt --data 'protocols_enabled_imap=on&protocols_enabled_pop3=on&ipv6=on&enable_plaintext_auth=yes&ssl_cipher_list=ECDHE-ECDSA-CHACHA20-POLY1305%3AECDHE-RSA-CHACHA20-POLY1305%3AECDHE-ECDSA-AES128-GCM-SHA256%3AECDHE-RSA-AES128-GCM-SHA256%3AECDHE-ECDSA-AES256-GCM-SHA384%3AECDHE-RSA-AES256-GCM-SHA384%3ADHE-RSA-AES128-GCM-SHA256%3ADHE-RSA-AES256-GCM-SHA384%3AECDHE-ECDSA-AES128-SHA256%3AECDHE-RSA-AES128-SHA256%3AECDHE-ECDSA-AES128-SHA%3AECDHE-RSA-AES256-SHA384%3AECDHE-RSA-AES128-SHA%3AECDHE-ECDSA-AES256-SHA384%3AECDHE-ECDSA-AES256-SHA%3AECDHE-RSA-AES256-SHA%3ADHE-RSA-AES128-SHA256%3ADHE-RSA-AES128-SHA%3ADHE-RSA-AES256-SHA256%3ADHE-RSA-AES256-SHA%3AECDHE-ECDSA-DES-CBC3-SHA%3AECDHE-RSA-DES-CBC3-SHA%3AEDH-RSA-DES-CBC3-SHA%3AAES128-GCM-SHA256%3AAES256-GCM-SHA384%3AAES128-SHA256%3AAES256-SHA256%3AAES128-SHA%3AAES256-SHA%3ADES-CBC3-SHA%3A%21DSS&ssl_min_protocol=TLSv1&max_mail_processes=512&mail_process_size=512&protocol_imap.mail_max_userip_connections=20&protocol_imap.imap_idle_notify_interval=24&protocol_pop3.mail_max_userip_connections=3&login_processes_count=2&login_max_processes_count=50&login_process_size=128&auth_cache_size=1M&auth_cache_ttl=3600&auth_cache_negative_ttl=3600&login_process_per_connection=no&config_vsz_limit=2048&mailbox_idle_check_interval=30&mdbox_rotate_size=10M&mdbox_rotate_interval=0&incoming_reached_quota=bounce&lmtp_process_min_avail=0&lmtp_process_limit=500&lmtp_user_concurrency_limit=4&expire_trash=1&expire_trash_ttl=30&include_trash_in_quota=1'
 
 # EXIM
 curl -sk "https://127.0.0.1:2087/$SESS_TOKEN/scripts2/saveeximtweaks" --cookie $COOKIE_FILE --data 'in_tab=1&module=Mail&find=&___original_acl_deny_spam_score_over_int=&___undef_original_acl_deny_spam_score_over_int=1&acl_deny_spam_score_over_int_control=undef&___original_acl_dictionary_attack=1&acl_dictionary_attack=1&___original_acl_primary_hostname_bl=0&acl_primary_hostname_bl=0&___original_acl_spam_scan_secondarymx=1&acl_spam_scan_secondarymx=1&___original_acl_ratelimit=1&acl_ratelimit=1&___original_acl_ratelimit_spam_score_over_int=&___undef_original_acl_ratelimit_spam_score_over_int=1&acl_ratelimit_spam_score_over_int_control=undef&___original_acl_slow_fail_block=1&acl_slow_fail_block=1&___original_acl_requirehelo=1&acl_requirehelo=1&___original_acl_delay_unknown_hosts=1&acl_delay_unknown_hosts=1&___original_acl_dont_delay_greylisting_trusted_hosts=1&acl_dont_delay_greylisting_trusted_hosts=1&___original_acl_dont_delay_greylisting_common_mail_providers=0&acl_dont_delay_greylisting_common_mail_providers=0&___original_acl_requirehelonoforge=1&acl_requirehelonoforge=1&___original_acl_requirehelonold=0&acl_requirehelonold=0&___original_acl_requirehelosyntax=1&acl_requirehelosyntax=1&___original_acl_dkim_disable=1&acl_dkim_disable=1&___original_acl_dkim_bl=0&___original_acl_deny_rcpt_soft_limit=&___undef_original_acl_deny_rcpt_soft_limit=1&acl_deny_rcpt_soft_limit_control=undef&___original_acl_deny_rcpt_hard_limit=&___undef_original_acl_deny_rcpt_hard_limit=1&acl_deny_rcpt_hard_limit_control=undef&___original_spammer_list_ips_button=&___undef_original_spammer_list_ips_button=1&___original_sender_verify_bypass_ips_button=&___undef_original_sender_verify_bypass_ips_button=1&___original_trusted_mail_hosts_ips_button=&___undef_original_trusted_mail_hosts_ips_button=1&___original_skip_smtp_check_ips_button=&___undef_original_skip_smtp_check_ips_button=1&___original_backup_mail_hosts_button=&___undef_original_backup_mail_hosts_button=1&___original_trusted_mail_users_button=&___undef_original_trusted_mail_users_button=1&___original_blocked_domains_button=&___undef_original_blocked_domains_button=1&___original_filter_emails_by_country_button=&___undef_original_filter_emails_by_country_button=1&___original_per_domain_mailips=1&per_domain_mailips=1&___original_custom_mailhelo=0&___original_custom_mailips=0&___original_systemfilter=%2Fetc%2Fcpanel_exim_system_filter&systemfilter_control=default&___original_filter_attachments=1&filter_attachments=1&___original_filter_spam_rewrite=1&filter_spam_rewrite=1&___original_filter_fail_spam_score_over_int=&___undef_original_filter_fail_spam_score_over_int=1&filter_fail_spam_score_over_int_control=undef&___original_spam_header=***SPAM***&spam_header_control=default&___original_acl_0tracksenders=0&acl_0tracksenders=0&___original_callouts=0&callouts=0&___original_smarthost_routelist=&smarthost_routelist_control=default&___original_smarthost_autodiscover_spf_include=1&smarthost_autodiscover_spf_include=1&___original_spf_include_hosts=&spf_include_hosts_control=default&___original_rewrite_from=disable&rewrite_from=disable&___original_hiderecpfailuremessage=0&hiderecpfailuremessage=0&___original_malware_deferok=1&malware_deferok=1&___original_senderverify=1&senderverify=1&___original_setsenderheader=0&setsenderheader=0&___original_spam_deferok=1&spam_deferok=1&___original_srs=0&srs=0&___original_query_apache_for_nobody_senders=1&query_apache_for_nobody_senders=1&___original_trust_x_php_script=1&trust_x_php_script=1&___original_dsn_advertise_hosts=&___undef_original_dsn_advertise_hosts=1&dsn_advertise_hosts_control=undef&___original_smtputf8_advertise_hosts=&___undef_original_smtputf8_advertise_hosts=1&smtputf8_advertise_hosts_control=undef&___original_manage_rbls_button=&___undef_original_manage_rbls_button=1&___original_acl_spamcop_rbl=1&acl_spamcop_rbl=1&___original_acl_spamhaus_rbl=1&acl_spamhaus_rbl=1&___original_rbl_whitelist_neighbor_netblocks=1&rbl_whitelist_neighbor_netblocks=1&___original_rbl_whitelist_greylist_common_mail_providers=1&rbl_whitelist_greylist_common_mail_providers=1&___original_rbl_whitelist_greylist_trusted_netblocks=0&rbl_whitelist_greylist_trusted_netblocks=0&___original_rbl_whitelist=&rbl_whitelist=&___original_allowweakciphers=1&allowweakciphers=1&___original_require_secure_auth=0&require_secure_auth=0&___original_openssl_options=+%2Bno_sslv2+%2Bno_sslv3&openssl_options_control=other&openssl_options_other=+%2Bno_sslv2+%2Bno_sslv3&___original_tls_require_ciphers=ECDHE-ECDSA-CHACHA20-POLY1305%3AECDHE-RSA-CHACHA20-POLY1305%3AECDHE-ECDSA-AES128-GCM-SHA256%3AECDHE-RSA-AES128-GCM-SHA256%3AECDHE-ECDSA-AES256-GCM-SHA384%3AECDHE-RSA-AES256-GCM-SHA384%3ADHE-RSA-AES128-GCM-SHA256%3ADHE-RSA-AES256-GCM-SHA384%3AECDHE-ECDSA-AES128-SHA256%3AECDHE-RSA-AES128-SHA256%3AECDHE-ECDSA-AES128-SHA%3AECDHE-RSA-AES256-SHA384%3AECDHE-RSA-AES128-SHA%3AECDHE-ECDSA-AES256-SHA384%3AECDHE-ECDSA-AES256-SHA%3AECDHE-RSA-AES256-SHA%3ADHE-RSA-AES128-SHA256%3ADHE-RSA-AES128-SHA%3ADHE-RSA-AES256-SHA256%3ADHE-RSA-AES256-SHA%3AECDHE-ECDSA-DES-CBC3-SHA%3AECDHE-RSA-DES-CBC3-SHA%3AEDH-RSA-DES-CBC3-SHA%3AAES128-GCM-SHA256%3AAES256-GCM-SHA384%3AAES128-SHA256%3AAES256-SHA256%3AAES128-SHA%3AAES256-SHA%3ADES-CBC3-SHA%3A%21DSS&tls_require_ciphers_control=other&tls_require_ciphers_other=ECDHE-ECDSA-CHACHA20-POLY1305%3AECDHE-RSA-CHACHA20-POLY1305%3AECDHE-ECDSA-AES128-GCM-SHA256%3AECDHE-RSA-AES128-GCM-SHA256%3AECDHE-ECDSA-AES256-GCM-SHA384%3AECDHE-RSA-AES256-GCM-SHA384%3ADHE-RSA-AES128-GCM-SHA256%3ADHE-RSA-AES256-GCM-SHA384%3AECDHE-ECDSA-AES128-SHA256%3AECDHE-RSA-AES128-SHA256%3AECDHE-ECDSA-AES128-SHA%3AECDHE-RSA-AES256-SHA384%3AECDHE-RSA-AES128-SHA%3AECDHE-ECDSA-AES256-SHA384%3AECDHE-ECDSA-AES256-SHA%3AECDHE-RSA-AES256-SHA%3ADHE-RSA-AES128-SHA256%3ADHE-RSA-AES128-SHA%3ADHE-RSA-AES256-SHA256%3ADHE-RSA-AES256-SHA%3AECDHE-ECDSA-DES-CBC3-SHA%3AECDHE-RSA-DES-CBC3-SHA%3AEDH-RSA-DES-CBC3-SHA%3AAES128-GCM-SHA256%3AAES256-GCM-SHA384%3AAES128-SHA256%3AAES256-SHA256%3AAES128-SHA%3AAES256-SHA%3ADES-CBC3-SHA%3A%21DSS&___original_globalspamassassin=0&globalspamassassin=0&___original_max_spam_scan_size=1000&max_spam_scan_size_control=default&___original_acl_outgoing_spam_scan=0&acl_outgoing_spam_scan=0&___original_acl_outgoing_spam_scan_over_int=&___undef_original_acl_outgoing_spam_scan_over_int=1&acl_outgoing_spam_scan_over_int_control=undef&___original_no_forward_outbound_spam=0&no_forward_outbound_spam=0&___original_no_forward_outbound_spam_over_int=&___undef_original_no_forward_outbound_spam_over_int=1&no_forward_outbound_spam_over_int_control=undef&___original_spamassassin_plugin_BAYES_POISON_DEFENSE=1&spamassassin_plugin_BAYES_POISON_DEFENSE=1&___original_spamassassin_plugin_P0f=1&spamassassin_plugin_P0f=1&___original_spamassassin_plugin_KAM=1&spamassassin_plugin_KAM=1&___original_spamassassin_plugin_CPANEL=1&spamassassin_plugin_CPANEL=1'
 
-# ACTIVATE BIND INSTEAD OF POWERDNS
-curl -sk "https://127.0.0.1:2087/$SESS_TOKEN/scripts/doconfigurenameserver" --cookie $COOKIE_FILE -X GET --data 'nameserver=bind'
+# ENABLE BIND INSTEAD OF POWERDNS
+/scripts/setupnameserver bind --force
 
 # REMOVE COOKIE
 rm -f $CWD/wpwhmcookie.txt
 
-echo "SETTING exim..."
+echo "Configuring exim..."
 sed -i 's/^acl_spamhaus_rbl=.*/acl_spamhaus_rbl=1/' /etc/exim.conf.localopts
 sed -i 's/^acl_spamcop_rbl=.*/acl_spamcop_rbl=1/' /etc/exim.conf.localopts
 sed -i 's/^require_secure_auth=.*/require_secure_auth=0/' /etc/exim.conf.localopts
 sed -i 's/^acl_spamcop_rbl=.*/acl_spamcop_rbl=1/' /etc/exim.conf.localopts
 sed -i 's/^allowweakciphers=.*/allowweakciphers=1/' /etc/exim.conf.localopts
-sed -i 's/^per_domain_mailips=.*/per_domain_mailips=1/' /etc/exim.conf.localopts # IT SEEMS TO HAVE A BUG WHEIN IT IS CONFIGUERD WITH CURL
+sed -i 's/^per_domain_mailips=.*/per_domain_mailips=1/' /etc/exim.conf.localopts # APPARENTLY HAS A BUG, CONFIGURED WITH CURL CALL
 sed -i 's/^max_spam_scan_size=.*/max_spam_scan_size=1000/' /etc/exim.conf.localopts
 sed -i 's/^openssl_options=.*/openssl_options= +no_sslv2 +no_sslv3/' /etc/exim.conf.localopts
 sed -i 's/^tls_require_ciphers=.*/tls_require_ciphers=ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES128-SHA256:ECDHE-RSA-AES128-SHA256:ECDHE-ECDSA-AES128-SHA:ECDHE-RSA-AES256-SHA384:ECDHE-RSA-AES128-SHA:ECDHE-ECDSA-AES256-SHA384:ECDHE-ECDSA-AES256-SHA:ECDHE-RSA-AES256-SHA:DHE-RSA-AES128-SHA256:DHE-RSA-AES128-SHA:DHE-RSA-AES256-SHA256:DHE-RSA-AES256-SHA:ECDHE-ECDSA-DES-CBC3-SHA:ECDHE-RSA-DES-CBC3-SHA:EDH-RSA-DES-CBC3-SHA:AES128-GCM-SHA256:AES256-GCM-SHA384:AES128-SHA256:AES256-SHA256:AES128-SHA:AES256-SHA:DES-CBC3-SHA:!DSS/' /etc/exim.conf.localopts
 sed -i 's/^message_linelength_limit=.*/message_linelength_limit=4096/' /etc/exim.conf.localopts # https://support.cpanel.net/hc/en-us/articles/4420121088919-Exim-4-95-message-has-lines-too-long-for-transport-Error
 
-# LIMIT OF ATTACHMENTS (PUT 40M TO HAVE A LIMIT OF 25M PER BUG https://support.cpanel.net/hc/en-us/articles/360052199934--SMTP-Error-Message-exceeds-server-limit-when-email-attachment-is-smaller-than-limit)
+# ATTACHMENT LIMIT (SET TO 40M TO HAVE A 25M LIMIT DUE TO BUG https://support.cpanel.net/hc/en-us/articles/360052199934--SMTP-Error-Message-exceeds-server-limit-when-email-attachment-is-smaller-than-limit)
 sed -i '/^message_size_limit.*/d' /etc/exim.conf.local
 if grep "@CONFIG@" /etc/exim.conf.local > /dev/null; then
         sed -i '/@CONFIG@/ a message_size_limit = 40M' /etc/exim.conf.local
@@ -408,128 +413,28 @@ else
         sed -i '/@CONFIG@/ a message_size_limit = 40M' /etc/exim.conf.local
 fi
 
+# Reject mails if the account is suspended https://support.cpanel.net/hc/en-us/articles/4418377416343-How-To-modify-the-Delivery-behavior-for-suspended-cPanel-accounts-from-the-command-Line
+sed -i.bak 's/^suspended_account_deliveries=.*$/suspended_account_deliveries=block/' /etc/exim.conf.localopts
+sed -i.bak 's/^\*.*/\*\: \:fail\: 525 5\.7\.13 Disabled recipient address/' /etc/exim_suspended_list
+
+# https://support.cpanel.net/hc/en-us/articles/36160643334807-Email-message-headers-X-Ham-Reports-and-X-Spam-Reports-output-is-not-readable
+sed -i 's|rfc2047:\${\(.*\)}|\1|' /usr/local/cpanel/etc/exim/acls/ACL_SPAM_SCAN_BLOCK/default_spam_scan
+sed -i 's|\${headerwrap_130:\(.*\)}|\1|' /usr/local/cpanel/etc/exim/acls/ACL_SPAM_SCAN_BLOCK/default_spam_scan
+
+/usr/local/cpanel/libexec/tailwatchd --disable=Cpanel::TailWatch::RecentAuthedMailIpTracker
+
 /scripts/buildeximconf
 
-echo "Installing EasyApache 4 PHP packages..."
-if grep -i "Almalinux release 8" /etc/redhat-release > /dev/null; then
-        # https://support.cpanel.net/hc/en-us/articles/14191689268375-How-to-Install-the-Sodium-Cryptographic-Library-libsodium-and-PHP-Extension-on-AlmaLinux-8-and-CloudLinux-8
-        dnf install libsodium libsodium-devel -y
-else # CENTOS 7
-        # https://support.cpanel.net/hc/en-us/articles/360056786594-How-to-Install-the-Sodium-Cryptographic-Library-libsodium-and-PHP-Extension-on-CentOS-7-and-CloudLinux-7
-        yum install epel-release -y
-        yum install libsodium libsodium-devel -y
-fi
-yum install -y \
+echo "Installing PHP EasyApache 4 packages..."
+dnf install libsodium libsodium-devel -y
+
+dnf install -y \
 ea-apache24-mod_proxy_fcgi \
 libcurl-devel \
 openssl-devel \
 unixODBC \
 ea-apache24-mod_version \
 ea-apache24-mod_env \
-ea-php56-php-curl \
-ea-php56-php-fileinfo \
-ea-php56-php-fpm \
-ea-php56-php-gd \
-ea-php56-php-iconv \
-ea-php56-php-ioncube \
-ea-php56-php-intl \
-ea-php56-php-mbstring \
-ea-php56-php-mcrypt \
-ea-php56-php-pdo \
-ea-php56-php-soap \
-ea-php56-php-zip \
-ea-php56-php-opcache \
-ea-php56-php-mysqlnd \
-ea-php56-php-bcmath \
-ea-php56-php-exif \
-ea-php56-php-xmlrpc \
-ea-php56-php-gettext \
-ea-php56-php-gmp \
-ea-php56-php-fpm \
-ea-php56-php-xml \
-ea-php56-php-imap \
-ea-php70-php-curl \
-ea-php70-php-fileinfo \
-ea-php70-php-fpm \
-ea-php70-php-gd \
-ea-php70-php-iconv \
-ea-php70-php-intl \
-ea-php70-php-mbstring \
-ea-php70-php-mcrypt \
-ea-php70-php-pdo \
-ea-php70-php-soap \
-ea-php70-php-xmlrpc \
-ea-php70-php-xml \
-ea-php70-php-zip \
-ea-php70-php-ioncube10 \
-ea-php70-php-opcache \
-ea-php70-php-mysqlnd \
-ea-php70-php-bcmath \
-ea-php70-php-exif \
-ea-php70-php-gettext \
-ea-php70-php-gmp \
-ea-php70-php-fpm \
-ea-php70-php-imap \
-ea-php71 \
-ea-php71-pear \
-ea-php71-php-cli \
-ea-php71-php-common \
-ea-php71-php-curl \
-ea-php71-php-devel \
-ea-php71-php-exif \
-ea-php71-php-fileinfo \
-ea-php71-php-fpm \
-ea-php71-php-ftp \
-ea-php71-php-gd \
-ea-php71-php-iconv \
-ea-php71-php-intl \
-ea-php71-php-litespeed \
-ea-php71-php-mbstring \
-ea-php71-php-mcrypt \
-ea-php71-php-mysqlnd \
-ea-php71-php-odbc \
-ea-php71-php-opcache \
-ea-php71-php-pdo \
-ea-php71-php-posix \
-ea-php71-php-soap \
-ea-php71-php-zip \
-ea-php71-runtime \
-ea-php71-php-bcmath \
-ea-php71-php-ioncube10 \
-ea-php71-php-xmlrpc \
-ea-php71-php-gettext \
-ea-php71-php-gmp \
-ea-php71-php-xml \
-ea-php71-php-imap \
-ea-php72 \
-ea-php72-pear \
-ea-php72-php-cli \
-ea-php72-php-common \
-ea-php72-php-curl \
-ea-php72-php-devel \
-ea-php72-php-exif \
-ea-php72-php-fileinfo \
-ea-php72-php-fpm \
-ea-php72-php-ftp \
-ea-php72-php-gd \
-ea-php72-php-iconv \
-ea-php72-php-intl \
-ea-php72-php-litespeed \
-ea-php72-php-mbstring \
-ea-php72-php-mysqlnd \
-ea-php72-php-opcache \
-ea-php72-php-pdo \
-ea-php72-php-posix \
-ea-php72-php-soap \
-ea-php72-php-zip \
-ea-php72-runtime \
-ea-php72-php-bcmath \
-ea-php72-php-ioncube10 \
-ea-php72-php-xmlrpc \
-ea-php72-php-gettext \
-ea-php72-php-gmp \
-ea-php72-php-xml \
-ea-php72-php-imap \
 ea-php73 \
 ea-php73-pear \
 ea-php73-php-cli \
@@ -538,7 +443,6 @@ ea-php73-php-curl \
 ea-php73-php-devel \
 ea-php73-php-exif \
 ea-php73-php-fileinfo \
-ea-php73-php-fpm \
 ea-php73-php-ftp \
 ea-php73-php-gd \
 ea-php73-php-iconv \
@@ -559,6 +463,7 @@ ea-php73-php-gettext \
 ea-php73-php-gmp \
 ea-php73-php-xml \
 ea-php73-php-imap \
+ea-php73-php-calendar \
 ea-php74 \
 ea-php74-pear \
 ea-php74-php-cli \
@@ -567,7 +472,6 @@ ea-php74-php-curl \
 ea-php74-php-devel \
 ea-php74-php-exif \
 ea-php74-php-fileinfo \
-ea-php74-php-fpm \
 ea-php74-php-ftp \
 ea-php74-php-gd \
 ea-php74-php-iconv \
@@ -588,6 +492,8 @@ ea-php74-php-gettext \
 ea-php74-php-gmp \
 ea-php74-php-xml \
 ea-php74-php-imap \
+ea-php74-php-sodium \
+ea-php74-php-calendar \
 ea-php80 \
 ea-php80-pear \
 ea-php80-php-cli \
@@ -596,7 +502,6 @@ ea-php80-php-curl \
 ea-php80-php-devel \
 ea-php80-php-exif \
 ea-php80-php-fileinfo \
-ea-php80-php-fpm \
 ea-php80-php-ftp \
 ea-php80-php-gd \
 ea-php80-php-iconv \
@@ -615,6 +520,8 @@ ea-php80-php-gettext \
 ea-php80-php-gmp \
 ea-php80-php-xml \
 ea-php80-php-imap \
+ea-php80-php-sodium \
+ea-php80-php-calendar \
 ea-php81 \
 ea-php81-pear \
 ea-php81-php-cli \
@@ -641,6 +548,9 @@ ea-php81-php-gettext \
 ea-php81-php-gmp \
 ea-php81-php-xml \
 ea-php81-php-imap \
+ea-php81-php-sodium \
+ea-php81-php-ioncube12 \
+ea-php81-php-calendar \
 ea-php82 \
 ea-php82-pear \
 ea-php82-php-cli \
@@ -668,14 +578,99 @@ ea-php82-php-gmp \
 ea-php82-php-xml \
 ea-php82-php-imap \
 ea-php82-php-sodium \
+ea-php82-php-ioncube13 \
+ea-php82-php-calendar \
+ea-php83 \
+ea-php83-pear \
+ea-php83-php-cli \
+ea-php83-php-common \
+ea-php83-php-curl \
+ea-php83-php-devel \
+ea-php83-php-exif \
+ea-php83-php-fileinfo \
+ea-php83-php-ftp \
+ea-php83-php-gd \
+ea-php83-php-iconv \
+ea-php83-php-intl \
+ea-php83-php-litespeed \
+ea-php83-php-mbstring \
+ea-php83-php-mysqlnd \
+ea-php83-php-opcache \
+ea-php83-php-pdo \
+ea-php83-php-posix \
+ea-php83-php-soap \
+ea-php83-php-zip \
+ea-php83-runtime \
+ea-php83-php-bcmath \
+ea-php83-php-gettext \
+ea-php83-php-gmp \
+ea-php83-php-xml \
+ea-php83-php-imap \
+ea-php83-php-sodium \
+ea-php83-php-ioncube14 \
+ea-php83-php-calendar \
+ea-php84 \
+ea-php84-pear \
+ea-php84-php-cli \
+ea-php84-php-common \
+ea-php84-php-curl \
+ea-php84-php-devel \
+ea-php84-php-exif \
+ea-php84-php-fileinfo \
+ea-php84-php-ftp \
+ea-php84-php-gd \
+ea-php84-php-iconv \
+ea-php84-php-intl \
+ea-php84-php-litespeed \
+ea-php84-php-mbstring \
+ea-php84-php-mysqlnd \
+ea-php84-php-opcache \
+ea-php84-php-pdo \
+ea-php84-php-posix \
+ea-php84-php-soap \
+ea-php84-php-zip \
+ea-php84-runtime \
+ea-php84-php-bcmath \
+ea-php84-php-gettext \
+ea-php84-php-gmp \
+ea-php84-php-xml \
+ea-php84-php-sodium \
+ea-php84-php-calendar \
+ea-php84-php-ioncube14 \
+ea-php85 \
+ea-php85-pear \
+ea-php85-php-cli \
+ea-php85-php-common \
+ea-php85-php-curl \
+ea-php85-php-devel \
+ea-php85-php-exif \
+ea-php85-php-fileinfo \
+ea-php85-php-ftp \
+ea-php85-php-gd \
+ea-php85-php-iconv \
+ea-php85-php-intl \
+ea-php85-php-litespeed \
+ea-php85-php-mbstring \
+ea-php85-php-mysqlnd \
+ea-php85-php-opcache \
+ea-php85-php-pdo \
+ea-php85-php-posix \
+ea-php85-php-soap \
+ea-php85-php-zip \
+ea-php85-runtime \
+ea-php85-php-bcmath \
+ea-php85-php-gettext \
+ea-php85-php-gmp \
+ea-php85-php-xml \
+ea-php85-php-sodium \
+ea-php85-php-calendar \
+ea-php85-php-ioncube15 \
 --skip-broken
 
-echo "Setting EasyApache 4 PHP..."
+echo "Configuring PHP EasyApache 4..."
 find /opt/ \( -name "php.ini" -o -name "local.ini" \) | xargs sed -i 's/^memory_limit.*/memory_limit = 1024M/g'
 find /opt/ \( -name "php.ini" -o -name "local.ini" \) | xargs sed -i 's/^enable_dl.*/enable_dl = Off/g'
 find /opt/ \( -name "php.ini" -o -name "local.ini" \) | xargs sed -i 's/^expose_php.*/expose_php = Off/g'
-find /opt/ \( -name "php.ini" -o -name "local.ini" \) | xargs sed -i 's/^register_globals.*/register_globals = Off/g'
-find /opt/ \( -name "php.ini" -o -name "local.ini" \) | xargs sed -i 's/^emagic_quotes_gpc.*/magic_quotes_gpc = Off/g'
 find /opt/ \( -name "php.ini" -o -name "local.ini" \) | xargs sed -i 's/^disable_functions.*/disable_functions = apache_get_modules,apache_get_version,apache_getenv,apache_note,apache_setenv,disk_free_space,diskfreespace,dl,exec,highlight_file,ini_alter,ini_restore,openlog,passthru,phpinfo,popen,posix_getpwuid,proc_close,proc_get_status,proc_nice,proc_open,proc_terminate,shell_exec,show_source,symlink,system,eval,debug_zval_dump/g'
 find /opt/ \( -name "php.ini" -o -name "local.ini" \) | xargs sed -i 's/^upload_max_filesize.*/upload_max_filesize = 16M/g'
 find /opt/ \( -name "php.ini" -o -name "local.ini" \) | xargs sed -i 's/^post_max_size.*/post_max_size = 16M/g'
@@ -688,12 +683,10 @@ find /opt/ \( -name "php.ini" -o -name "local.ini" \) | xargs sed -i 's/^max_inp
 find /opt/ \( -name "php.ini" -o -name "local.ini" \) | xargs sed -i 's/^;default_charset = "UTF-8"/default_charset = "UTF-8"/g'
 find /opt/ \( -name "php.ini" -o -name "local.ini" \) | xargs sed -i 's/^default_charset.*/default_charset = "UTF-8"/g'
 
-find /opt/ \( -name "php.ini" -o -name "local.ini" \) | xargs sed -i 's/^display_errors.*/display_errors = Off/g'
-find /opt/ \( -name "php.ini" -o -name "local.ini" \) | xargs sed -i 's/^track_errors.*/track_errors = Off/g'
-find /opt/ \( -name "php.ini" -o -name "local.ini" \) | xargs sed -i 's/^html_errors.*/html_errors = Off/g'
+find /opt/ \( -name "php.ini" -o -name "local.ini" \) | xargs sed -i 's/^display_errors.*/display_errors = On/g'
 find /opt/ \( -name "php.ini" -o -name "local.ini" \) | xargs sed -i 's/^error_reporting.*/error_reporting = E_ALL \& \~E_DEPRECATED \& \~E_STRICT/g'
 
-echo "Setting default PHP-FPM values..." # https://documentation.cpanel.net/display/74Docs/Configuration+Values+of+PHP-FPM
+echo "Configuring default PHP-FPM values..." # https://documentation.cpanel.net/display/74Docs/Configuration+Values+of+PHP-FPM
 mkdir -p /var/cpanel/ApachePHPFPM
 cat > /var/cpanel/ApachePHPFPM/system_pool_defaults.yaml << EOF
 ---
@@ -705,15 +698,14 @@ EOF
 /scripts/restartsrv_apache_php_fpm
 
 echo "Configuring Handlers..."
-whmapi1 php_set_handler version=ea-php55 handler=cgi
-whmapi1 php_set_handler version=ea-php56 handler=cgi
-whmapi1 php_set_handler version=ea-php70 handler=cgi
-whmapi1 php_set_handler version=ea-php71 handler=cgi
 whmapi1 php_set_handler version=ea-php73 handler=cgi
 whmapi1 php_set_handler version=ea-php74 handler=cgi
 whmapi1 php_set_handler version=ea-php80 handler=cgi
-whmapi1 php_set_system_default_version version=ea-php74
-
+whmapi1 php_set_handler version=ea-php81 handler=cgi
+whmapi1 php_set_handler version=ea-php82 handler=cgi
+whmapi1 php_set_handler version=ea-php83 handler=cgi
+whmapi1 php_set_handler version=ea-php84 handler=cgi
+whmapi1 php_set_system_default_version version=ea-php84
 
 echo "Configuring PHP-FPM..."
 whmapi1 php_set_default_accounts_to_fpm default_accounts_to_fpm=0
@@ -758,9 +750,11 @@ if [ $ISVPS = "NO" ]; then
 fi
 
 echo "Configuring MySQL..."
+# I leave cpanel to decide
 whmapi1 set_tweaksetting key=mycnf_auto_adjust_maxallowedpacket value=1
 whmapi1 set_tweaksetting key=mycnf_auto_adjust_openfiles_limit value=1
 whmapi1 set_tweaksetting key=mycnf_auto_adjust_innodb_buffer_pool_size value=1
+
 sed -i '/^local-infile.*/d' /etc/my.cnf
 sed -i '/^sql_mode.*/d' /etc/my.cnf
 sed -i '/^# WNPower pre-configured values.*/d' /etc/my.cnf
@@ -772,32 +766,27 @@ sed  -i '/\[mysqld\]/a # WNPower pre-configured values' /etc/my.cnf
 
 /scripts/restartsrv_mysql
 
-
-
 echo "Configuring disabled features..."
 whmapi1 update_featurelist featurelist=disabled api_shell=0 agora=0 analog=0 boxtrapper=0 traceaddy=0 modules-php-pear=0 modules-perl=0 modules-ruby=0 pgp=0 phppgadmin=0 postgres=0 ror=0 serverstatus=0 webalizer=0 clamavconnector_scan=0 lists=0 emailtrace=1
 
-echo "defaultSetting features..."
+echo "Configuring default features..."
 whmapi1 update_featurelist featurelist=default modsecurity=1 zoneedit=1 emailtrace=1
 
 echo "Creating default package..."
-# It IS ESTIMATED 80% OF THE DISC FOR DEFAULT ACCOUNT
+# CALCULATE 80% OF DISK FOR THE DEFAULT ACCOUNT
 QUOTA=$(df -h /home/ | tail -1 | awk '{ print $2 }' | sed 's/G//' | awk '{ print ($1 * 1000) * 0.8 }')
-whmapi1 addpkg name=default featurelist=default quota=$QUOTA cgi=0 frontpage=0 language=es maxftp=20 maxsql=20 maxpop=unlimited maxlists=0 maxsub=30 maxpark=30 maxaddon=0 hasshell=1 bwlimit=unlimited MAX_EMAIL_PER_HOUR=300 MAX_DEFER_FAIL_PERCENTAGE=30
 
-echo "Setting server time..."
-if grep -i "release 8" /etc/redhat-release > /dev/null; then
-        echo "Instalando Chrony..."
-        yum install chrony -y
-        systemctl enable chronyd
-else
-        yum install ntpdate -y
-        echo "Sincronizando fecha con pool.ntp.org..."
-        ntpdate 0.pool.ntp.org 1.pool.ntp.org 2.pool.ntp.org 3.pool.ntp.org 0.south-america.pool.ntp.org
-fi
+whmapi1 addpkg name=default featurelist=default quota=$QUOTA cgi=0 frontpage=0 language=en maxftp=20 maxsql=20 maxpop=unlimited maxlists=0 maxsub=30 maxpark=30 maxaddon=0 hasshell=1 bwlimit=unlimited MAX_EMAIL_PER_HOUR=300 MAX_DEFER_FAIL_PERCENTAGE=30
+
+echo "Configuring server time..."
+
+echo "Installing Chrony..."
+dnf install chrony -y
+systemctl enable chronyd
 
 echo "Setting Timezone..."
 timedatectl set-timezone "America/Argentina/Buenos_Aires"
+
 echo "Setting BIOS date..."
 hwclock -r
 
@@ -805,7 +794,7 @@ echo "Disabling mlocate cron..."
 chmod -x /etc/cron.daily/mlocate* 2>&1 > /dev/null
 
 if [ -f /proc/user_beancounters ]; then
-	echo "OpenVZ detected, implementing hostname patch..."
+	echo "OpenVZ detected, applying hostname patch..."
 	echo "/usr/bin/hostnamectl set-hostname $HOSTNAME" >> /etc/rc.d/rc.local
 	echo "/bin/systemctl restart exim.service" >> /etc/rc.d/rc.local
 	chmod +x /etc/rc.d/rc.local
@@ -823,25 +812,22 @@ whmapi1 set_autossl_metadata_key key=notify_autossl_renewal_uncovered_domains va
 echo "Disabling cPHulk..."
 whmapi1 disable_cphulk
 
-echo "Activating Header Authorization in CGI..."
-sed -i '/# ACTIVATE HEADER AUTHORIZATION CGI/,/# END ACTIVATE HEADER AUTHORIZATION CGI/d' /etc/apache2/conf.d/includes/pre_main_global.conf
+echo "Enabling Header Authorization in CGI..."
+sed -i '/# START ENABLE HEADER AUTHORIZATION CGI/,/# END ENABLE HEADER AUTHORIZATION CGI/d' /etc/apache2/conf.d/includes/pre_main_global.conf
 
 cat >> /etc/apache2/conf.d/includes/pre_main_global.conf << 'EOF'
-# START ACTIVATE HEADER AUTHORIZATION CGI
+# START ENABLE HEADER AUTHORIZATION CGI
 SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1
-# END ACTIVATE HEADER AUTHORIZATION CGI
+# END ENABLE HEADER AUTHORIZATION CGI
 
 EOF
 
 /scripts/restartsrv_apache
 
-echo "Activating 2FA..."
+echo "Enabling 2FA..."
 /usr/local/cpanel/bin/whmapi1 twofactorauth_enable_policy
 
-#echo "Patch Webmail x3 error..."
-#ln -s /usr/local/cpanel/base/webmail/paper_lantern /usr/local/cpanel/base/webmail/x3
-
-echo "disabling mod_userdir (old preview with ~ user)..."
+echo "Disabling mod_userdir (old ~user preview)..."
 sed -i 's/:.*/:/g' /var/cpanel/moddirdomains
 
 find /var/cpanel/userdata/ -type f -exec grep -H "userdirprotect: -1" {} \; | while read LINE
@@ -851,20 +837,23 @@ do
 done
 
 /scripts/rebuildhttpdconf
-/scripts/
+/scripts/restartsrv_httpd
 
 echo "Configuring JailShell..."
 echo "/etc/pki/java" >> /var/cpanel/jailshell-additional-mounts
 
 echo "Miscellaneous..."
-# DOES NOT HAVE EXECUTION PERMITS FOR EVERYONE BY DEFAULT
+# DOES NOT HAVE EXECUTION PERMISSIONS FOR ALL BY DEFAULT
 chmod 755 /usr/bin/wget
 chmod 755 /usr/bin/curl 
 
-echo "INSTALLING PHP ImageMagick..."
-yum -y install ImageMagick-devel ImageMagick-c++-devel ImageMagick-perl
+echo "Installing PHP ImageMagick..."
+dnf -y install ImageMagick-devel ImageMagick-c++-devel ImageMagick-perl
 
 for phpver in $(ls -1 /opt/cpanel/ |grep ea-php | sed 's/ea-php//g') ; do
+
+	# Disable disable_functions
+	sed -i 's/^disable_functions/;disable_functions/' /opt/cpanel/ea-php$phpver/root/etc/php.ini
 
         printf "\autodetect" | exec /opt/cpanel/ea-php$phpver/root/usr/bin/php -C \
         -d include_path=/usr/share/pear \
@@ -876,22 +865,21 @@ for phpver in $(ls -1 /opt/cpanel/ |grep ea-php | sed 's/ea-php//g') ; do
         -d disable_functions="" \
         /opt/cpanel/ea-php$phpver/root/usr/share/pear/peclcmd.php install imagick
 
-        #sed -i 's/extension=imagick.so//' /opt/cpanel/ea-php$phpver/root/etc/php.d/imagick.ini
-        #echo 'extension=imagick.so' >> /opt/cpanel/ea-php$phpver/root/etc/php.d/imagick.ini
-
+	# RE-ENABLE disable_functions
+        sed -i 's/^;disable_functions/disable_functions/' /opt/cpanel/ea-php$phpver/root/etc/php.ini
 done
 
 /scripts/restartsrv_httpd
 /scripts/restartsrv_apache_php_fpm
 
-echo "Disabling Greylisting ..."
-whmapi 1 disable_cpgreylist
+echo "Disabling Greylisting..."
+whmapi1 disable_cpgreylist
 
 echo "Disabling Welcome Panel..."
 # https://support.cpanel.net/hc/en-us/articles/1500003456602-How-to-Disable-the-Welcome-Panel-Server-Wide-for-Newly-Created-Accounts
 mkdir -pv /root/cpanel3-skel/.cpanel/nvdata; echo "1" > /root/cpanel3-skel/.cpanel/nvdata/xmainwelcomedismissed
 
-echo "Deactivating the new Glass theme for new accounts..."
+echo "Disabling new Glass theme for new accounts..."
 # https://support.cpanel.net/hc/en-us/articles/1500011608461
 # https://support.cpanel.net/hc/en-us/articles/4402125595415-How-to-disable-the-Glass-theme-feedback-banner-for-newly-created-accounts
 mkdir -pv /root/cpanel3-skel/.cpanel/nvdata/; echo -n "1" > /root/cpanel3-skel/.cpanel/nvdata/xmainNewStyleBannerDismissed
@@ -901,11 +889,75 @@ whmapi1 set_default type='default' name='basic'
 echo "Disabling cPanel Analytics..."
 whmapi1 participate_in_analytics enabled=0
 
-echo "Correcting cPanel RPMs..." # Sometimes there is one corrupt
+echo "Fixing cPanel RPMs..." # Sometimes some remain corrupt
 /usr/local/cpanel/scripts/check_cpanel_pkgs --fix
 
-echo "Setting default version of global PHP..."
+echo "Setting default PHP version globally..."
 whmapi1 php_set_system_default_version version=ea-php81
+
+# Fix bug systemd --user https://support.cpanel.net/hc/en-us/community/posts/19164685550615-Cron-Jobs-and-usr-lib-systemd-systemd-user-in-Almalinux
+systemctl mask user@.service
+ps axo user:30,pid,comm:100 | grep systemd | grep -v "root\|grep" | awk '{ print $2 }' | xargs kill
+
+echo "Rewriting /etc/resolv.conf..."
+
+echo "options timeout:5 attempts:2" > /etc/resolv.conf
+echo "nameserver 127.0.0.1" >> /etc/resolv.conf # local
+echo "nameserver 208.67.222.222" >> /etc/resolv.conf # OpenDNS
+echo "nameserver 8.20.247.20" >> /etc/resolv.conf # Comodo
+echo "nameserver 8.8.8.8" >> /etc/resolv.conf # Google
+echo "nameserver 199.85.126.10" >> /etc/resolv.conf # Norton
+echo "nameserver 8.26.56.26" >> /etc/resolv.conf # Comodo
+echo "nameserver 209.244.0.3" >> /etc/resolv.conf # Level3
+echo "nameserver 8.8.4.4" >> /etc/resolv.conf # Google
+
+echo "Installing libraries for jq..."
+dnf install oniguruma -y
+dnf install libsodium -y
+dnf install jq -y
+
+echo "Installing locales..."
+dnf install glibc-all-langpacks -y
+
+echo "Installing other packages..."
+dnf install ipcalc -y
+dnf install libatomic -y
+
+echo "Disabling Bloatware..."
+whmapi1 EcosystemFeatures/local_disable plugin=cpanel-monitoring-plugin # https://support.cpanel.net/hc/en-us/articles/28456122745623-How-to-disable-Server-Monitoring-360-Monitoring
+
+echo "Final miscellaneous..."
+whmapi1 accept_eula
+
+# Disable "Site Publisher has been deprecated" notice:
+sed -i "/<\!-- Disable-SitePublisherNote -->/,/<\!-- Disable-SitePublisherNote -->/d" /var/cpanel/customizations/content_includes/cpanel_jupiter_header_after.html.tt
+
+echo '
+<!-- Disable-SitePublisherNote -->
+<script>
+document.cookie = "cpanel_hideSitePublisherDeprecationNotice=yes;path=/";
+</script>
+<!-- Disable-SitePublisherNote -->' >> /var/cpanel/customizations/content_includes/cpanel_jupiter_header_after.html.tt
+
+
+# Extra CPU for cpuwatch (50% or 2 if it can't detect the number of cores)
+CPUS=$(grep -c "^processor" /proc/cpuinfo 2>/dev/null)
+
+if [[ "$CPUS" =~ ^[0-9]+$ ]] && [ "$CPUS" -gt 0 ]; then
+    EXTRA=$((CPUS / 2))
+else
+    EXTRA=2
+fi
+
+whmapi1 set_tweaksetting key='extracpus' value="$EXTRA"
+
+# Disable auto-installation of WP-Toolkit
+# https://support.cpanel.net/hc/en-us/community/posts/34544689564311-Wp-Toolbox-WordPress-Plugin-Auto-install
+sed -i '/installIntegrationPluginToNewSites.*/d' /usr/local/cpanel/3rdparty/wp-toolkit/var/etc/config.ini 2>/dev/null
+sed -i '/rolloutIntegrationPluginToExistingSites.*/d' /usr/local/cpanel/3rdparty/wp-toolkit/var/etc/config.ini 2>/dev/null
+
+echo "installIntegrationPluginToNewSites = false" >> /usr/local/cpanel/3rdparty/wp-toolkit/var/etc/config.ini
+echo "rolloutIntegrationPluginToExistingSites = false" >> /usr/local/cpanel/3rdparty/wp-toolkit/var/etc/config.ini
 
 echo "Cleaning...."
 
@@ -914,4 +966,4 @@ rm -f /var/cpanel/nocloudlinux > /dev/null
 history -c
 echo "" > /root/.bash_history
 
-echo "#### ¡Finished!. If you are going to restart do it in 10 minutes because you're be updating MySQL ####"
+echo "#### Done! If you are going to restart, wait 10 minutes because MySQL may still be updating ####"
