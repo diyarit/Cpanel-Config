@@ -757,7 +757,7 @@ whmapi1 set_tweaksetting key=mycnf_auto_adjust_innodb_buffer_pool_size value=1
 
 sed -i '/^local-infile.*/d' /etc/my.cnf
 sed -i '/^sql_mode.*/d' /etc/my.cnf
-sed -i '/^# WNPower pre-configured values.*/d' /etc/my.cnf
+sed -i '/^#  pre-configured values.*/d' /etc/my.cnf
 
 sed  -i '/\[mysqld\]/a\ ' /etc/my.cnf
 sed  -i '/\[mysqld\]/a sql_mode = ALLOW_INVALID_DATES,NO_ENGINE_SUBSTITUTION' /etc/my.cnf
